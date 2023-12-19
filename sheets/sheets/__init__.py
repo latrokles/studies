@@ -349,6 +349,9 @@ class DisplayDevice:
     def bitmap_bytes(self):
         return (ctypes.c_char * len(self.fb)).from_buffer(self.fb)
 
+    def clear(self):
+        self.fb = bytearray(self.w * self.h * self.depth * [0x00])
+
     def color_at(self, x, y):
         x_out_of_bounds = x < 0 or self.w <= x
         y_out_of_bounds = y < 0 or self.h <= y
@@ -730,22 +733,55 @@ class Window:
     def draw(self, screen):
         screen.fill_rect(self.x, self.y, self.w, self.h, self.color)
 
+    def __contains__(self, coords):
+        x, y = coords
+        contains_x = self.x < x < self.x + self.w
+        contains_y = self.y < y < self.y + self.h
+        return contains_x and contains_y
+
 
 class Sheets:
     def __init__(self):
         self.children = []
+        self.active_window = None
+        self.drag_offset_x = 0
+        self.drag_offset_y = 0
+
+    @property
+    def window_count(self):
+        return len(self.children)
 
     def create_window(self, x, y, w, h):
         self.children.append(Window(x, y, w, h))
 
     def on_mouse(self, mouse):
-        print(mouse)
+        if mouse.left:
+            for i in reversed(range(0, self.window_count)):
+                win = self.children[i]
+                if (mouse.x, mouse.y) in win:
+                    self.children.pop(i)
+                    self.children.append(win)
+
+                    self.active_window = win
+                    self.drag_offset_x = mouse.x - win.x
+                    self.drag_offset_y = mouse.y - win.y
+                    break
+
+        else:
+            self.active_window = None
+            self.drag_offset_x = 0
+            self.drag_offset_y = 0
+
+        if self.active_window is not None:
+            self.active_window.x = mouse.x - self.drag_offset_x
+            self.active_window.y = mouse.y - self.drag_offset_y
 
     def on_keybd(self, keyboard):
         if keyboard.has_pressed([Mod.ESC]):
             sys.exit(0)  # TODO fix this ugh
 
     def draw(self, screen):
+        screen.clear()
         for win in self.children:
             win.draw(screen)
         

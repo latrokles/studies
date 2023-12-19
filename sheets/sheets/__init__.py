@@ -739,6 +739,8 @@ class Window:
         contains_y = self.y < y < self.y + self.h
         return contains_x and contains_y
 
+    def __repr__(self):
+        return f'Window(x={self.x}, y={self.y}, w={self.w}, h={self.h})'
 
 class Sheets:
     def __init__(self):
@@ -751,30 +753,39 @@ class Sheets:
     def window_count(self):
         return len(self.children)
 
+    def has_active_window(self):
+        return self.active_window is not None
+
     def create_window(self, x, y, w, h):
         self.children.append(Window(x, y, w, h))
 
+    def grab_window(self, x, y):
+        for i in reversed(range(0, self.window_count)):
+            win = self.children[i]
+            if (x, y) in win:
+                self.active_window = self.children.pop(i)
+                return
+
+    def drop_window(self):
+        if not self.has_active_window():
+            return
+
+        self.children.append(self.active_window)
+        self.active_window = None
+        self.drag_offset_x = 0
+        self.drag_offset_y = 0
+
     def on_mouse(self, mouse):
         if mouse.left:
-            for i in reversed(range(0, self.window_count)):
-                win = self.children[i]
-                if (mouse.x, mouse.y) in win:
-                    self.children.pop(i)
-                    self.children.append(win)
-
-                    self.active_window = win
-                    self.drag_offset_x = mouse.x - win.x
-                    self.drag_offset_y = mouse.y - win.y
-                    break
-
+            if self.has_active_window():
+                self.active_window.x = mouse.x - self.drag_offset_x
+                self.active_window.y = mouse.y - self.drag_offset_y
+            else:
+                self.grab_window(mouse.x, mouse.y)
+                self.drag_offset_x = mouse.x - self.active_window.x
+                self.drag_offset_y = mouse.y - self.active_window.y
         else:
-            self.active_window = None
-            self.drag_offset_x = 0
-            self.drag_offset_y = 0
-
-        if self.active_window is not None:
-            self.active_window.x = mouse.x - self.drag_offset_x
-            self.active_window.y = mouse.y - self.drag_offset_y
+            self.drop_window()
 
     def on_keybd(self, keyboard):
         if keyboard.has_pressed([Mod.ESC]):
@@ -784,6 +795,8 @@ class Sheets:
         screen.clear()
         for win in self.children:
             win.draw(screen)
+        if self.has_active_window():
+            self.active_window.draw(screen)
         
 
 

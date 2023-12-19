@@ -4,8 +4,6 @@ import random
 import sdl2
 import sys
 
-from threading import Thread
-
 
 class Color:
     def __init__(self, r, g, b, a = 255):
@@ -500,8 +498,8 @@ class KeyboardDevice:
         return all((self.modifiers[m] == 1) for m in modifiers_to_check)
 
 
-class DesktopAppRuntime:
-    """DesktopAppRuntime wraps all interaction with the platform's desktop
+class Runtime:
+    """Runtime wraps all interaction with the platform's desktop
     facilities for drawing to the screen and handling input from the mouse and
     keyboard."""
 
@@ -510,6 +508,7 @@ class DesktopAppRuntime:
         self.h = height * scale
         self.scale = scale
         self.screen = DisplayDevice(0, 0, width, height)
+        self.draw = None
 
         self.mouse = MouseDevice()
         self.handle_mouse_event = None
@@ -533,6 +532,9 @@ class DesktopAppRuntime:
 
     def register_keybd_handler(self, keybd_handler):
         self.handle_keybd_event = keybd_handler
+
+    def register_draw(self, draw):
+        self.draw = draw
 
     def start(self):
         if sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO) < 0:
@@ -589,6 +591,7 @@ class DesktopAppRuntime:
             if self.exiting:
                 break
 
+            self.draw(self.screen)
             self._redisplay()
 
             end = sdl2.SDL_GetPerformanceCounter()
@@ -722,14 +725,18 @@ class Window:
         self.y = y
         self.w = w
         self.h = h
+        self.color = Palette.random()
 
     def draw(self, screen):
-        screen.fill_rect(self.x, self.y, self.w, self.h, Palette.random())
+        screen.fill_rect(self.x, self.y, self.w, self.h, self.color)
 
 
 class Sheets:
-    def __init__(self, screen):
-        self.screen = screen
+    def __init__(self):
+        self.children = []
+
+    def create_window(self, x, y, w, h):
+        self.children.append(Window(x, y, w, h))
 
     def on_mouse(self, mouse):
         print(mouse)
@@ -738,10 +745,9 @@ class Sheets:
         if keyboard.has_pressed([Mod.ESC]):
             sys.exit(0)  # TODO fix this ugh
 
-    def run(self):
-        Window(10, 10, 300, 200).draw(self.screen)
-        Window(100, 150, 400, 400).draw(self.screen)
-        Window(200, 100, 200, 300).draw(self.screen)
+    def draw(self, screen):
+        for win in self.children:
+            win.draw(screen)
         
 
 
@@ -753,12 +759,16 @@ def launch(width, height, scale):
     # I don't necessarily like this... thinking of a
     # better way to do this.
 
-    runtime = DesktopAppRuntime(width, height, scale)
-    sheets = Sheets(runtime.screen)
+    sheets = Sheets()
+    sheets.create_window(10, 10, 300, 200)
+    sheets.create_window(100, 150, 400, 400)
+    sheets.create_window(200, 100, 200, 300)
+
+    runtime = Runtime(width, height, scale)
     runtime.register_mouse_handler(sheets.on_mouse)
     runtime.register_keybd_handler(sheets.on_keybd)
+    runtime.register_draw(sheets.draw)
 
-    Thread(target=sheets.run, daemon=True).start()
     runtime.start()
 
 

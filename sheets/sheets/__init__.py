@@ -330,6 +330,7 @@ class DisplayDevice:
         self.y = y
         self.w = width
         self.h = height
+        self.clipping_rects = []
 
         if data is None:
             data = bytearray(self.w * self.h * self.depth * [0x00])
@@ -390,11 +391,41 @@ class DisplayDevice:
     def fill(self, color):
         self.fb = bytearray(self.w * self.h * color.values)
 
+    def add_clipping_rect(self, new_rect):
+        """Insert the passed rectangle into the clip list, splitting all
+        existing clip rectangles against it to prevent overlap"""
+        for i in range(0, len(self.clipping_rects)):
+
+            current_rect = self.clipping_rects[i]
+
+            if not current_rect.is_intersected_by(new_rect):
+                continue
+
+            self.clipping_rects.remove(current_rect)
+            split_rects = current_rect.split(new_rect)
+
+            for split in split_rects:
+                self.clipping_rects.append(split)
+
+        self.clipping_rects.append(new_rect)
+
+    def clear_clipping_rects(self):
+        self.clipping_rects = []
+
     def fill_rect(self, x, y, w, h, color):
         # naive implementation of fill_rect
         for row in range(y, y + h):
             for col in range(x, x + w):
                 self.put_color_at(col, row, color)
+
+    def draw_rect(self, x, y, w, h, color):
+        # draw horizontal lines
+        self.fill_rect(x, y, w, 1, color)
+        self.fill_rect(x, y + h, w, 1, color) 
+
+        # draw vertical lines
+        self.fill_rect(x, y, 1, h, color)
+        self.fill_rect(x + w, y, 1, h, color)
 
     def _pixel_bytes_range_at_point(self, x, y):
 
@@ -722,6 +753,69 @@ MODS_BY_SDL_CODE = {
 }
 
 
+class Rect:
+    def __init__(self, top, left, bottom, right):
+        self.top = top
+        self.left = left
+        self.bottom = bottom
+        self.right = right
+
+    def is_intersected_by(self, other):
+        return (
+            self.left <= other.right and
+            self.right >= other.left and
+            self.top <= other.bottom and
+            self.bottom >= other.top
+        )
+
+    def split(self, cutting_rect):
+        rects = []
+        cloned = Rect(self.top, self.left, self.bottom, self.right)
+
+        # Begin splitting
+        # 1 Split by left edge if that edge is between the subject's 
+        #   left and right edges 
+        if cutting_rect.left >= cloned.left and cutting_rect.left <= cloned.right:
+            # Try to make a new rectangle spanning from the subject 
+            # rectangle's left and stopping before the cutting rectangle's
+            # left and add it to list
+            rects.append(Rect(cloned.top, cloned.left, cloned.bottom, cutting_rect.left - 1))
+
+            # shrink cloned
+            cloned.left = cutting_rect.left
+
+        # 2 Split by top edge if that edge is between the subject's top and bottom edges
+        if cutting_rect.top >= cloned.top and cutting_rect.top <= cloned.bottom:
+            # ry to make a new rectangle spanning from the subject rectangle's
+            # top and stopping before the cutting rectangle's top
+            rects.append(Rect(cloned.top, cloned.left, cutting_rect.top - 1, cloned.right))
+            
+            # shrink cloned
+            cloned.top = cutting_rect.top
+
+        # 3 Split by right edge if that edge is between the subject's left and
+        #   right edges
+        if cutting_rect.right >= cloned.left and cutting_rect.right <= cloned.right:
+            # Try to make a new rectangle spanning from the subject rectangle's right
+            # and stopping before the cutting rectangle's right
+            rects.append(Rect(cloned.top, cutting_rect.right - 1, cloned.bottom, cloned.right))
+
+            # shrink cloned
+            cloned.right = cutting_rect.right
+
+        # 4 Split by bottom edge if that edge is between the subject's top
+        #   and bottom edges
+        if cutting_rect.bottom >= cloned.top and cutting_rect.bottom <= cloned.bottom:
+            # Try to make a new rectangle spanning from the subject rectangle's
+            # bottom and stopping before the cutting rectangle's bottom
+            rects.append(Rect(cutting_rect.bottom - 1, cloned.left, cloned.bottom, cloned.right))
+
+            # shrink cloned
+            cloned.bottom = cutting_rect.bottom
+
+        return rects
+
+
 class Window:
     def __init__(self, x, y, w, h):
         self.x = x
@@ -732,6 +826,15 @@ class Window:
 
     def draw(self, screen):
         screen.fill_rect(self.x, self.y, self.w, self.h, self.color)
+
+    @property
+    def rect(self):
+        return Rect(
+            self.y,
+            self.x, 
+            self.y + self.h - 1,
+            self.x + self.w - 1
+        )
 
     def __contains__(self, coords):
         x, y = coords
@@ -764,13 +867,14 @@ class Sheets:
             win = self.children[i]
             if (x, y) in win:
                 self.active_window = self.children.pop(i)
+                self.children.append(self.active_window)
                 return
 
     def drop_window(self):
         if not self.has_active_window():
             return
 
-        self.children.append(self.active_window)
+        # self.children.append(self.active_window)
         self.active_window = None
         self.drag_offset_x = 0
         self.drag_offset_y = 0
@@ -792,11 +896,31 @@ class Sheets:
             sys.exit(0)  # TODO fix this ugh
 
     def draw(self, screen):
+        # draw clipping rects ... for illustration rn
         screen.clear()
+        screen.clear_clipping_rects()
+
+        for win in self.children:
+            screen.add_clipping_rect(win.rect)
+
+        if self.has_active_window():
+            screen.add_clipping_rect(self.active_window.rect)
+
+        # TODO this doesn't really belong here
+        for rect in screen.clipping_rects:
+            screen.draw_rect(
+                rect.left,
+                rect.top,
+                rect.right - rect.left + 1,
+                rect.bottom - rect.top + 1,
+                Color(0, 0, 255)
+            )
+
+    def draw_windows(self, screen):
+        screen.clear()
+
         for win in self.children:
             win.draw(screen)
-        if self.has_active_window():
-            self.active_window.draw(screen)
         
 
 
@@ -811,7 +935,7 @@ def launch(width, height, scale):
     sheets = Sheets()
     sheets.create_window(10, 10, 300, 200)
     sheets.create_window(100, 150, 400, 400)
-    sheets.create_window(200, 100, 200, 300)
+    sheets.create_window(200, 100, 200, 600)
 
     runtime = Runtime(width, height, scale)
     runtime.register_mouse_handler(sheets.on_mouse)

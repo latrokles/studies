@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "proto"
+version = "0.1.0"
+description = ""
+authors = ["latrokles <latrokles@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+coverage = "^7.5.3"
+pytest-cov = "^5.0.0"
+pytest-html = "^4.1.1"
+flake8 = "^7.0.0"
+
+[tool.pytest.ini_options]
+addopts = "-vv -ra -q --cov=proto --cov-branch --cov-report=html:build/coverage --cov-report=term --html=build/test/index.html"
+pythonpath = ["."]
+testpaths = ["."]
+python_files = ["*.py"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

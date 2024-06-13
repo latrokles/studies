@@ -5,8 +5,10 @@ import itertools
 import operator
 import sys
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, List
+
+from flask import Flask, render_template
 
 
 @dataclass
@@ -44,15 +46,15 @@ class Object:
         return [slot.value for slot in self.slots if slot.is_parent]
 
     def clone(self, tag=None, **kwargs):
-        tag = (tag or self.tag)
-        parent = Slot("parent", self, True) 
+        tag = tag or self.tag
+        parent = Slot("parent", self, True)
         additional_slots = [Slot(name, value) for name, value in kwargs.items()]
         new = Object(tag, [parent] + additional_slots)
         return new
 
     def get_slot(self, name):
         for objekt in self.slot_resolution_order():
-            if (slot := objekt.find_slot(name)):
+            if slot := objekt.find_slot(name):
                 return slot.value
         raise RuntimeError(f"{self.tag} does not understand `{name}`!")
 
@@ -66,7 +68,7 @@ class Object:
         return self._set_slot(Slot(name, method_object, False, True))
 
     def _set_slot(self, slot):
-        if (found_slot := self.find_slot(slot.name)):
+        if found_slot := self.find_slot(slot.name):
             self.slots.remove(found_slot)
         self.slots.append(slot)
         return self
@@ -88,6 +90,9 @@ class Object:
         contents = " ".join(f"{slot}" for slot in contents if slot.is_not_executable)
         return f"({self.tag} {contents})"
 
+    def inspect_json(self):
+        return {"tag": self.tag, "slots": [slot.name for slot in self.slots]}
+
     def __str__(self):
         return self.inspect()
 
@@ -105,7 +110,7 @@ class PrimitiveMethod(Object):
                 return box(self.code(unbox(receiver)))
             case 1:  # binary
                 return box(self.code(unbox(receiver), unbox(args[0])))
-            case _:  # keyword 
+            case _:  # keyword
                 return box(self.code(unbox(receiver), unbox(args)))
 
     def __str__(self):
@@ -152,7 +157,9 @@ def box(native_value):
         case str():
             return String.clone(value=native_value)
         case _:
-            raise RuntimeError(f"Unable to box {native_value=} with {type(native_value)=}!")
+            raise RuntimeError(
+                f"Unable to box {native_value=} with {type(native_value)=}!"
+            )
 
 
 def unbox(obj):
@@ -170,16 +177,22 @@ def add_binary_native_method(receiver, name, fully_qualified_callable):
 
 
 PrimitiveModule = OBJECT.clone(tag="PrimitiveModule")
-PrimitiveModule.set_method_slot("load", PrimitiveBinaryMethod("load", [], importlib.import_module))
-PrimitiveModule.set_method_slot("unload", PrimitiveBinaryMethod("unload", [], sys.modules.pop))
-PrimitiveModule.set_method_slot("get-slot", PrimitiveBinaryMethod("get-slot", [], getattr))
+PrimitiveModule.set_method_slot(
+    "load", PrimitiveBinaryMethod("load", [], importlib.import_module)
+)
+PrimitiveModule.set_method_slot(
+    "unload", PrimitiveBinaryMethod("unload", [], sys.modules.pop)
+)
+PrimitiveModule.set_method_slot(
+    "get-slot", PrimitiveBinaryMethod("get-slot", [], getattr)
+)
 
 Nil = OBJECT.clone(tag="Nil", value=None)
 Boolean = OBJECT.clone(tag="Boolean")
 true = Boolean.clone(value=True)
 false = Boolean.clone(value=False)
 String = OBJECT.clone(tag="String")
-Number = OBJECT.clone(tag="Number") 
+Number = OBJECT.clone(tag="Number")
 Integer = Number.clone(tag="Integer")
 Float = Number.clone(tag="Float")
 Number.set_method_slot("+", PrimitiveBinaryMethod("+", [], operator.add))
@@ -187,3 +200,33 @@ Number.set_method_slot("-", PrimitiveBinaryMethod("-", [], operator.sub))
 Number.set_method_slot("*", PrimitiveBinaryMethod("*", [], operator.mul))
 Number.set_method_slot("/", PrimitiveBinaryMethod("/", [], operator.truediv))
 Number.set_method_slot("negate", PrimitiveUnaryMethod("negate", [], operator.neg))
+
+
+OBJECTS = {
+    "Object": OBJECT,
+    "Nil": Nil,
+    "Boolean": Boolean,
+    "true": true,
+    "false": false,
+    "String": String,
+    "Number": Number,
+    "Integer": Integer,
+    "Float": Float,
+}
+
+
+app = Flask(__name__, static_folder="static")
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html", objekts=OBJECTS.keys())
+
+
+@app.route("/describe/<string:tag>", methods=["GET"])
+def describe_object(tag):
+    return OBJECTS[tag].inspect_json()
+
+
+def main():
+    app.run(debug=True)

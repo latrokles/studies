@@ -23,6 +23,9 @@ pythonpath = ["."]
 testpaths = ["."]
 python_files = ["*_test.py"]
 
+[tool.poetry.scripts]
+protozoa = "proto:main"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

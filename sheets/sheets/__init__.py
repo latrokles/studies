@@ -394,6 +394,10 @@ class DisplayDevice:
     def add_clipping_rect(self, new_rect):
         """Insert the passed rectangle into the clip list, splitting all
         existing clip rectangles against it to prevent overlap"""
+        self.subtract_clipping_rect(new_rect)
+        self.clipping_rects.append(new_rect)
+
+    def subtract_clipping_rect(self, new_rect):
         for i in range(0, len(self.clipping_rects)):
 
             current_rect = self.clipping_rects[i]
@@ -407,15 +411,35 @@ class DisplayDevice:
             for split in split_rects:
                 self.clipping_rects.append(split)
 
-        self.clipping_rects.append(new_rect)
-
     def clear_clipping_rects(self):
         self.clipping_rects = []
 
     def fill_rect(self, x, y, w, h, color):
-        # naive implementation of fill_rect
-        for row in range(y, y + h):
-            for col in range(x, x + w):
+        if self.clipping_rects:
+            for rect in self.clipping_rects:
+                self.clip_rect(x, y, w, h, rect, color)
+        else:
+            rect = Rect(0, 0, self.h - 1, self.w -1)
+            self.clip_rect(x, y, w, h, rect, color)
+
+    def clip_rect(self, x, y, w, h, clipping_area, color):
+        max_x = x + w
+        max_y = y + h
+
+        if x < clipping_area.left:
+            x = clipping_area.left
+
+        if y < clipping_area.top:
+            y = clipping_area.top
+
+        if max_x > clipping_area.right + 1:
+            max_x = clipping_area.right + 1
+
+        if max_y > clipping_area.bottom + 1:
+            max_y = clipping_area.bottom + 1
+
+        for row in range(y, max_y):
+            for col in range(x, max_x):
                 self.put_color_at(col, row, color)
 
     def draw_rect(self, x, y, w, h, color):
@@ -898,30 +922,19 @@ class Sheets:
     def draw(self, screen):
         # draw clipping rects ... for illustration rn
         screen.clear()
+        screen.fill_rect(0, 0, screen.w // 2, screen.h // 2, Color(0, 0, 255))
+        screen.fill_rect(screen.w // 2, 0, screen.w // 2, screen.h // 2, Color(0, 255, 0))
+        screen.fill_rect(0, screen.h // 2, screen.w // 2, screen.h // 2, Color(0, 255, 255))
+        screen.fill_rect(screen.w // 2, screen.h // 2, screen.w // 2, screen.h // 2, Color(255, 0, 255))
+
+        screen.add_clipping_rect(Rect(0, 0, screen.h - 1, screen.w - 1))
+
+        for window in self.children:
+            rect = Rect(window.y, window.x, window.y + window.h - 1, window.x + window.w + 1)
+            screen.subtract_clipping_rect(rect)
+
+        screen.fill_rect(0, 0, screen.w, screen.h, Color.from_hexstr('0xFFFF9933'))
         screen.clear_clipping_rects()
-
-        for win in self.children:
-            screen.add_clipping_rect(win.rect)
-
-        if self.has_active_window():
-            screen.add_clipping_rect(self.active_window.rect)
-
-        # TODO this doesn't really belong here
-        for rect in screen.clipping_rects:
-            screen.draw_rect(
-                rect.left,
-                rect.top,
-                rect.right - rect.left + 1,
-                rect.bottom - rect.top + 1,
-                Color(0, 0, 255)
-            )
-
-    def draw_windows(self, screen):
-        screen.clear()
-
-        for win in self.children:
-            win.draw(screen)
-        
 
 
 @click.command()
